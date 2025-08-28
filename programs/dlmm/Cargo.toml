@@ -1,0 +1,15 @@
+[package]
+name = "dlmm"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "dlmm"
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+anchor-lang = "0.31.1"
+anchor-spl = "0.31.1"
+bytemuck = { version = "1.13", features = ["derive"] }
+
+

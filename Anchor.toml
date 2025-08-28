@@ -1,0 +1,20 @@
+[workspace]
+members = []
+
+[programs.localnet]
+dlmm = "So11111111111111111111111111111111111111112"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "Localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "node tests/dlmm.spec.ts | cat"
+
+[toolchain]
+anchor_version = "0.31.1"
+
+
