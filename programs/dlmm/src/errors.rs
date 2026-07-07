@@ -34,4 +34,6 @@ pub enum DlmmError {
     ZeroDeposit,
     #[msg("Invalid fee configuration")]
     InvalidFeeConfig,
+    #[msg("Bin array start ID must be aligned to BINS_PER_ARRAY boundary")]
+    InvalidBinArrayStart,
 }

@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use crate::state::*;
+use crate::errors::DlmmError;
 
 #[derive(Accounts)]
 #[instruction(start_bin_id: i32)]
@@ -19,6 +20,11 @@ pub struct InitializeBinArray<'info> {
 }
 
 pub fn handler(ctx: Context<InitializeBinArray>, start_bin_id: i32) -> Result<()> {
+    require!(
+        bin_id_to_array_start(start_bin_id) == start_bin_id,
+        DlmmError::InvalidBinArrayStart
+    );
+
     let mut bin_array = ctx.accounts.bin_array.load_init()?;
     bin_array.pool = ctx.accounts.pool.key();
     bin_array.start_bin_id = start_bin_id;
