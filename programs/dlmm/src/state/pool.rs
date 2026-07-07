@@ -1,4 +1,6 @@
 use anchor_lang::prelude::*;
+use crate::state::bin_array::bin_id_to_array_start;
+use crate::state::bin_array::BINS_PER_ARRAY;
 
 #[account]
 pub struct Pool {
@@ -46,4 +48,25 @@ impl Pool {
         + 8 // fee decay interval
         + 1 // bump
         + 7; // reserved
+
+    pub fn bin_array_seed(bin_id: i32) -> Vec<u8> {
+        let start = bin_id_to_array_start(bin_id);
+        start.to_le_bytes().to_vec()
+    }
+
+    pub fn derive_bin_array_address(pool_key: &Pubkey, bin_id: i32, program_id: &Pubkey) -> (Pubkey, u8) {
+        let start = bin_id_to_array_start(bin_id);
+        Pubkey::find_program_address(
+            &[
+                b"bin_array",
+                pool_key.as_ref(),
+                &start.to_le_bytes(),
+            ],
+            program_id,
+        )
+    }
+
+    pub fn active_bin_array_start(&self) -> i32 {
+        bin_id_to_array_start(self.active_bin_id)
+    }
 }

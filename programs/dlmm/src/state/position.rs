@@ -30,4 +30,8 @@ impl Position {
         + 8 // fees owed y
         + 8 // last update
         + 1; // bump
+
+    pub fn is_in_range(&self, bin_id: i32) -> bool {
+        bin_id >= self.lower_bin_id && bin_id <= self.upper_bin_id
+    }
 }
