@@ -215,7 +215,7 @@ mod tests {
     #[test]
     fn test_price_1pct_bins() {
         let base = base_multiplier(100);
-        let p0 = bin_to_price(0, 100).unwrap();
+        let _p0 = bin_to_price(0, 100).unwrap();
         let p100 = bin_to_price(100, 100).unwrap();
         let expected = pow_q64(base, 100).unwrap();
         assert_eq!(p100, expected);
