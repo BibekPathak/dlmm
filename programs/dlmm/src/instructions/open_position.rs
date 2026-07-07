@@ -27,6 +27,8 @@ pub struct OpenPosition<'info> {
 
 pub fn handler(ctx: Context<OpenPosition>, params: OpenPositionParams) -> Result<()> {
     require!(params.lower_bin_id <= params.upper_bin_id, DlmmError::InvalidBinRange);
+
+    let clock = Clock::get()?;
     let position = &mut ctx.accounts.position;
     position.owner = ctx.accounts.owner.key();
     position.pool = ctx.accounts.pool.key();
@@ -34,8 +36,11 @@ pub fn handler(ctx: Context<OpenPosition>, params: OpenPositionParams) -> Result
     position.upper_bin_id = params.upper_bin_id;
     position.total_liquidity_x = 0;
     position.total_liquidity_y = 0;
+    position.fee_checkpoint_x = 0;
+    position.fee_checkpoint_y = 0;
     position.fees_owed_x = 0;
     position.fees_owed_y = 0;
+    position.last_update = clock.unix_timestamp;
     position.bump = ctx.bumps.position;
     Ok(())
 }

@@ -1,5 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::state::*;
+use crate::errors::DlmmError;
+use crate::math::price_math::bin_to_price;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct InitializePoolParams {
@@ -38,6 +40,14 @@ pub struct InitializePool<'info> {
 }
 
 pub fn handler(ctx: Context<InitializePool>, params: InitializePoolParams) -> Result<()> {
+    require!(params.bin_step_bps > 0, DlmmError::InvalidFeeConfig);
+    require!(params.bin_step_bps <= 10000, DlmmError::InvalidFeeConfig);
+    require!(params.base_fee_bps <= 10000, DlmmError::InvalidFeeConfig);
+    require!(params.protocol_fee_bps <= params.base_fee_bps, DlmmError::InvalidFeeConfig);
+
+    let clock = Clock::get()?;
+    let initial_price = bin_to_price(params.active_bin_id, params.bin_step_bps)?;
+
     let pool = &mut ctx.accounts.pool;
     pool.authority = ctx.accounts.authority.key();
     pool.token_mint_a = ctx.accounts.token_mint_a.key();
@@ -49,7 +59,13 @@ pub fn handler(ctx: Context<InitializePool>, params: InitializePoolParams) -> Re
     pool.bin_step_bps = params.bin_step_bps;
     pool.base_bin_id = params.base_bin_id;
     pool.active_bin_id = params.active_bin_id;
+    pool.pending_protocol_fees_x = 0;
+    pool.pending_protocol_fees_y = 0;
     pool.base_fee_bps = params.base_fee_bps;
+    pool.variable_fee_bps = 0;
+    pool.vol_reference_price = initial_price;
+    pool.vol_accumulator = 0;
+    pool.vol_last_timestamp = clock.unix_timestamp;
     pool.fee_decay_interval = params.fee_decay_interval;
     pool.bump = ctx.bumps.pool;
     Ok(())
