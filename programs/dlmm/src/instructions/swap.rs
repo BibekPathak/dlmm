@@ -7,7 +7,7 @@ use crate::events::SwapEvent;
 use crate::state::bin_array::{bin_id_to_array_start, BINS_PER_ARRAY};
 use crate::math::price_math::bin_to_price;
 use crate::math::swap_math::compute_swap_step;
-use crate::math::fee_math::apply_bps;
+use crate::math::fee_math::{apply_bps, update_volatility};
 use crate::math::fixed_point::Q64;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -212,6 +212,22 @@ pub fn handler(ctx: Context<Swap>, params: SwapParams) -> Result<()> {
     {
         let pool = &mut ctx.accounts.pool;
         pool.active_bin_id = cur_bin_id;
+
+        let clock = Clock::get()?;
+        let swap_price = bin_to_price(cur_bin_id, pool.bin_step_bps)?;
+        let (new_acc, new_ref, new_var) = update_volatility(
+            pool.vol_accumulator,
+            pool.vol_reference_price,
+            swap_price,
+            pool.vol_last_timestamp,
+            clock.unix_timestamp,
+            pool.fee_decay_interval,
+            200,
+        );
+        pool.vol_accumulator = new_acc;
+        pool.vol_reference_price = new_ref;
+        pool.variable_fee_bps = new_var;
+        pool.vol_last_timestamp = clock.unix_timestamp;
 
         if params.a_to_b {
             let protocol_share = apply_bps(total_fee, pool.protocol_fee_bps)?;
