@@ -163,4 +163,39 @@ mod tests {
         let base = base_multiplier(10000);
         assert_eq!(base, Q64.saturating_mul(2));
     }
+
+    #[test]
+    fn test_q64_mul_max_valid() {
+        let max_valid = u64::MAX as u128;
+        assert!(q64_mul(max_valid, Q64).is_ok());
+    }
+
+    #[test]
+    fn test_q64_mul_many_products() {
+        let vals = [Q64 / 2, Q64, Q64 * 3 / 2, Q64 * 2, Q64 * 10];
+        for &a in &vals {
+            assert!(q64_mul(a, Q64).is_ok());
+        }
+    }
+
+    #[test]
+    fn test_q64_div_by_one() {
+        let a = 12345u128;
+        assert_eq!(q64_div(a, Q64).unwrap(), a);
+    }
+
+    #[test]
+    fn test_q64_mul_commutative() {
+        let a = Q64 * 3 / 2;
+        let b = Q64 * 7 / 4;
+        let ab = q64_mul(a, b).unwrap();
+        let ba = q64_mul(b, a).unwrap();
+        assert_eq!(ab, ba);
+    }
+
+    #[test]
+    fn test_inv_base_multiplier_max_step() {
+        let inv = inv_base_multiplier(10000);
+        assert_eq!(inv, Q64 / 2);
+    }
 }

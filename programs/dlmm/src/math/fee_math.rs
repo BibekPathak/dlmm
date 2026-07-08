@@ -114,9 +114,72 @@ mod tests {
         let (acc, ref_price, var_fee) = update_volatility(
             0, 1u128 << 64, (11u128 << 64) / 10, 100, 200, 3600, 200,
         );
-        // Integer truncation may give 999 instead of 1000
         assert!(acc == 999 || acc == 1000, "acc={}", acc);
         assert_eq!(ref_price, (11u128 << 64) / 10);
         assert!(var_fee == 1 || var_fee == 2, "var_fee={}", var_fee);
+    }
+
+    #[test]
+    fn test_decay_volatility_timestamp_in_past() {
+        let d = decay_volatility(500, 200, 100, 60);
+        assert_eq!(d, 500);
+    }
+
+    #[test]
+    fn test_decay_volatility_max_capped() {
+        let d = decay_volatility(100_000, 0, 0 + 60 * 200, 60);
+        assert!(d > 0 && d < 100_000);
+    }
+
+    #[test]
+    fn test_decay_volatility_zero_accumulator() {
+        let d = decay_volatility(0, 100, 200, 60);
+        assert_eq!(d, 0);
+    }
+
+    #[test]
+    fn test_calculate_variable_fee_custom_max() {
+        assert_eq!(calculate_variable_fee(25_000, 100), 25);
+        assert_eq!(calculate_variable_fee(75_000, 500), 375);
+    }
+
+    #[test]
+    fn test_calculate_variable_fee_clamped() {
+        assert_eq!(calculate_variable_fee(200_000, 200), 200);
+    }
+
+    #[test]
+    fn test_update_volatility_no_change() {
+        let q64 = 1u128 << 64;
+        let (acc, ref_price, var_fee) = update_volatility(100, q64, q64, 100, 200, 3600, 200);
+        assert!(acc <= 100);
+        assert_eq!(ref_price, q64);
+        assert_eq!(var_fee, 0);
+    }
+
+    #[test]
+    fn test_update_volatility_high_vol() {
+        let q64 = 1u128 << 64;
+        let (acc, _ref, _vf) = update_volatility(
+            0, q64, q64.saturating_mul(2), 100, 200, 3600, 200,
+        );
+        assert!(acc >= 5000);
+    }
+
+    #[test]
+    fn test_apply_bps_small_values() {
+        assert_eq!(apply_bps(1, 100).unwrap(), 0);
+        assert_eq!(apply_bps(100, 1).unwrap(), 0);
+        assert_eq!(apply_bps(10000, 1).unwrap(), 1);
+    }
+
+    #[test]
+    fn test_apply_bps_max_bps() {
+        assert_eq!(apply_bps(1000, 10000).unwrap(), 1000);
+    }
+
+    #[test]
+    fn test_apply_bps_overflow_safe() {
+        assert!(apply_bps(u64::MAX, 10000).is_ok());
     }
 }

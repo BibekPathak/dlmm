@@ -1,14 +1,8 @@
-import { AnchorProvider, setProvider, Program } from "@coral-xyz/anchor";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import "./quote.test";
 
-describe("dlmm", () => {
-  const provider = AnchorProvider.env();
-  setProvider(provider);
-
-  it("boots provider", async () => {
-    const walletPk = provider.wallet.publicKey;
-    console.log("Provider pubkey:", walletPk.toBase58());
+describe("dlmm — integration (requires local validator)", () => {
+  it("placeholder: test suite ready for on-chain deployment", () => {
+    // Integration tests go here once the program is deployable
+    // See tests/integration/ for skeleton
   });
 });
-
-

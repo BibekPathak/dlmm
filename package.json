@@ -12,6 +12,8 @@
     "@types/bn.js": "^5.2.0",
     "@types/mocha": "^10.0.10",
     "bn.js": "^5.2.4",
+    "fast-check": "^4.8.0",
+    "mocha": "^11.7.6",
     "ts-node": "^10.9.1",
     "typescript": "^5.4.5"
   }

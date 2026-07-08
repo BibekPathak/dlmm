@@ -88,4 +88,45 @@ mod tests {
         let x_back = y_to_x(y, price).unwrap();
         assert_eq!(x, x_back);
     }
+
+    #[test]
+    fn test_x_to_y_max_amount() {
+        let result = x_to_y(u64::MAX, Q64);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_y_to_x_max_amount() {
+        let result = y_to_x(u64::MAX, Q64);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_x_to_y_high_price_overflow() {
+        assert!(x_to_y(u64::MAX, Q64.saturating_mul(2)).is_err());
+    }
+
+    #[test]
+    fn test_y_to_x_high_price() {
+        let result = y_to_x(1000, Q64.saturating_mul(100));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 10);
+    }
+
+    #[test]
+    fn test_x_to_y_tiny_fraction() {
+        let price = Q64 / 1_000_000;
+        let result = x_to_y(1_000_000, price).unwrap();
+        // Truncation may give 0 or 1
+        assert!(result == 0 || result == 1, "got {}", result);
+    }
+
+    #[test]
+    fn consistency() {
+        // Exact division cases
+        assert_eq!(x_to_y(10000, Q64).unwrap(), 10000);
+        assert_eq!(x_to_y(10000, Q64 * 2).unwrap(), 20000);
+        assert_eq!(y_to_x(10000, Q64).unwrap(), 10000);
+        assert_eq!(y_to_x(20000, Q64 * 2).unwrap(), 10000);
+    }
 }

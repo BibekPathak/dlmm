@@ -134,4 +134,66 @@ mod tests {
         assert_eq!(r.fee_paid, 10);
         assert_eq!(r.amount_out, 1000);
     }
+
+    #[test]
+    fn test_step_exact_boundary_a_to_b() {
+        let r = compute_swap_step(50, 500, 50, Q64, true, 0).unwrap();
+        assert_eq!(r.amount_out, 50);
+        assert_eq!(r.amount_in_consumed, 50);
+        assert!(!r.bin_depleted);
+    }
+
+    #[test]
+    fn test_step_empty_bin_b_to_a() {
+        let r = compute_swap_step(1000, 0, 500, Q64, false, 0).unwrap();
+        assert_eq!(r.amount_out, 0);
+        assert!(!r.bin_depleted);
+    }
+
+    #[test]
+    fn test_step_full_deplete_b_to_a() {
+        let r = compute_swap_step(1000, 30, 500, Q64 * 2, false, 0).unwrap();
+        assert_eq!(r.amount_out, 30);
+        assert_eq!(r.amount_in_consumed, 60);
+        assert!(r.bin_depleted);
+    }
+
+    #[test]
+    fn test_step_fee_on_partial() {
+        let r = compute_swap_step(1000, 5000, 5000, Q64, true, 50).unwrap();
+        assert_eq!(r.fee_paid, 5);
+        assert_eq!(r.amount_out, 1000);
+    }
+
+    #[test]
+    fn test_step_fee_on_deplete() {
+        let r = compute_swap_step(10000, 500, 50, Q64, true, 100).unwrap();
+        assert_eq!(r.amount_out, 50);
+        assert_eq!(r.amount_in_consumed, 50);
+        assert_eq!(r.fee_paid, 0);
+        assert!(r.bin_depleted);
+    }
+
+    #[test]
+    fn test_step_high_fee() {
+        let r = compute_swap_step(1000, 5000, 5000, Q64, true, 5000).unwrap();
+        assert_eq!(r.fee_paid, 500);
+        assert_eq!(r.amount_out, 1000);
+    }
+
+    #[test]
+    fn test_step_price_not_one() {
+        let half_price = Q64 / 2;
+        let r = compute_swap_step(100, 500, 500, half_price, true, 0).unwrap();
+        assert_eq!(r.amount_out, 50);
+        assert!(!r.bin_depleted);
+    }
+
+    #[test]
+    fn test_step_double_price_b_to_a() {
+        let double = Q64 * 2;
+        let r = compute_swap_step(100, 500, 500, double, false, 0).unwrap();
+        assert_eq!(r.amount_out, 50);
+        assert!(!r.bin_depleted);
+    }
 }
