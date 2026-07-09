@@ -4,11 +4,11 @@ use bytemuck::from_bytes_mut;
 use crate::state::*;
 use crate::errors::DlmmError;
 use crate::events::SwapEvent;
-use crate::state::bin_array::{bin_id_to_array_start, BINS_PER_ARRAY};
 use crate::math::price_math::bin_to_price;
 use crate::math::swap_math::compute_swap_step;
 use crate::math::fee_math::{apply_bps, update_volatility};
-use crate::math::fixed_point::Q64;
+use crate::math::fixed_point::{q64_mul, Q64};
+use crate::math::fixed_point::{base_multiplier, inv_base_multiplier};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct SwapParams {
@@ -50,6 +50,11 @@ pub fn handler(ctx: Context<Swap>, params: SwapParams) -> Result<()> {
     let direction: i32 = if params.a_to_b { 1 } else { -1 };
     let mut cur_bin_id = pool.active_bin_id;
     let bin_step_bps = pool.bin_step_bps;
+    let step_multiplier = if params.a_to_b {
+        base_multiplier(bin_step_bps)
+    } else {
+        inv_base_multiplier(bin_step_bps)
+    };
 
     let mut total_net: u64 = 0;
     let mut total_out: u64 = 0;
@@ -64,6 +69,8 @@ pub fn handler(ctx: Context<Swap>, params: SwapParams) -> Result<()> {
             continue;
         }
 
+        let mut price = bin_to_price(cur_bin_id, bin_step_bps)?;
+
         loop {
             if (params.a_to_b && cur_bin_id >= params.price_limit_bin_id)
                 || (!params.a_to_b && cur_bin_id <= params.price_limit_bin_id)
@@ -71,12 +78,10 @@ pub fn handler(ctx: Context<Swap>, params: SwapParams) -> Result<()> {
                 break;
             }
 
-            if !bin_array.contains(cur_bin_id) {
-                break;
-            }
-
-            let price = bin_to_price(cur_bin_id, bin_step_bps)?;
-            let bin = bin_array.get_bin_mut(cur_bin_id)?;
+            let bin = match bin_array.get_bin_mut(cur_bin_id) {
+                Ok(b) => b,
+                Err(_) => break,
+            };
 
             if params.exact_in {
                 let used_gross = total_net.saturating_add(total_fee);
@@ -105,6 +110,7 @@ pub fn handler(ctx: Context<Swap>, params: SwapParams) -> Result<()> {
 
                 if step.amount_out == 0 && !step.bin_depleted {
                     cur_bin_id = cur_bin_id.saturating_add(direction);
+                    price = q64_mul(price, step_multiplier)?;
                     bins_traversed = bins_traversed.saturating_add(1);
                     continue;
                 }
@@ -134,6 +140,7 @@ pub fn handler(ctx: Context<Swap>, params: SwapParams) -> Result<()> {
 
                 if step.bin_depleted {
                     cur_bin_id = cur_bin_id.saturating_add(direction);
+                    price = q64_mul(price, step_multiplier)?;
                 } else {
                     break;
                 }
@@ -147,6 +154,7 @@ pub fn handler(ctx: Context<Swap>, params: SwapParams) -> Result<()> {
 
                 if available == 0 {
                     cur_bin_id = cur_bin_id.saturating_add(direction);
+                    price = q64_mul(price, step_multiplier)?;
                     bins_traversed = bins_traversed.saturating_add(1);
                     continue;
                 }
@@ -172,6 +180,7 @@ pub fn handler(ctx: Context<Swap>, params: SwapParams) -> Result<()> {
                         total_out = total_out.checked_add(available).ok_or(error!(DlmmError::MathOverflow))?;
                         total_fee = total_fee.checked_add(fee).ok_or(error!(DlmmError::MathOverflow))?;
                         cur_bin_id = cur_bin_id.saturating_add(direction);
+                        price = q64_mul(price, step_multiplier)?;
                     }
                 } else {
                     let net_needed = ((remaining_out as u128)
@@ -192,6 +201,7 @@ pub fn handler(ctx: Context<Swap>, params: SwapParams) -> Result<()> {
                         total_out = total_out.checked_add(available).ok_or(error!(DlmmError::MathOverflow))?;
                         total_fee = total_fee.checked_add(fee).ok_or(error!(DlmmError::MathOverflow))?;
                         cur_bin_id = cur_bin_id.saturating_add(direction);
+                        price = q64_mul(price, step_multiplier)?;
                     }
                 }
                 bins_traversed = bins_traversed.saturating_add(1);
