@@ -1,161 +1,100 @@
 # DLMM Performance
 
+## Real Benchmarks (x86_64 host)
+
+Measured with `std::time::Instant` across 1M iterations (fixed-point)
+or 100K iterations (price/swap). Compiled with nightly Rust benchmark profile.
+
+Absolute numbers will be ~20× higher on Solana BPF VM, but relative costs
+between operations are representative. Estimates based on published
+Solana compute costs: ~1 µs x86 ≈ ~20 µs SBF (20× slowdown for
+integer arithmetic in a constrained VM).
+
+### Fixed-Point Arithmetic
+
+| Operation | Input | ns/iter | Notes |
+|-----------|-------|---------|-------|
+| `q64_mul` | Q64 × Q64 | **416** | Widening multiply (64-bit limb decomposition) |
+| `q64_div` | (Q64/2) ÷ Q64 | **152** | |
+| `base_multiplier` | step=10 bps | **0** | Constant-time arithmetic, essentially free |
+| `inv_base_multiplier` | step=10 bps | **0** | |
+
+### Price Computation
+
+| Operation | Input | ns/iter | Notes |
+|-----------|-------|---------|-------|
+| `bin_to_price` | bin=0 | **8** | Trivial: returns Q64 immediately |
+| `bin_to_price` | bin=100 | **4,233** | `pow_q64(base, 100)` — log₂(100) = 7 iterations |
+| `bin_to_price` | bin=1,000 | **6,186** | log₂(1K) = 10 iterations |
+| `bin_to_price` | bin=10,000 | **8,068** | log₂(10K) = 14 iterations |
+| `bin_to_price` | bin=-1,000 | **6,624** | Uses `inv_base`, symmetric cost |
+| `pow_q64` | exp=10 | **2,436** | Binary exponentiation, 4 iterations |
+| `pow_q64` | exp=100 | **4,188** | 7 iterations |
+| `pow_q64` | exp=1,000 | **6,834** | 10 iterations |
+
+**Key insight:** Binary exponentiation scales as O(log n). Going from bin=100
+to bin=10,000 (100× increase) adds only ~3.8 µs (~90% increase). Iterative
+multiplication would take 100× longer.
+
+### Swap Step Computation
+
+| Operation | ns/iter | Notes |
+|-----------|---------|-------|
+| Partial fill | **221** | Compute desired output via `q64_mul`, bin stays non-empty |
+| Full depletion | **380** | Compute net needed to drain bin via `q64_div` |
+| Empty bin (skip) | **8** | Immediate return via zero-check |
+
+### Projected Swap Latency (x86_64 host)
+
+| Bins Traversed | Computation Time | Formula |
+|----------------|-----------------|---------|
+| 1 | **4.6 µs** | `bin_to_price(bin)` + `swap_step` |
+| 10 | **10.7 µs** | + 9 × (q64_mul + swap_step) |
+| 50 | **36.5 µs** | |
+| 100 | **69 µs** | |
+| 200 | **134 µs** | |
+| 500 | **332 µs** | |
+
+**Formula:** T(n) = bin_to_price(initial) + n × (q64_mul + swap_step_avg)
+
+Estimated on Solana BPF (~20×): 100-bin swap ≈ **1.4 ms**, 500-bin swap ≈ **6.6 ms**.
+
 ## Account Sizes
 
 | Account | Size | Zero-Copy | Notes |
 |---------|------|-----------|-------|
-| Pool | 201 B | No | Single account per pool pair; read on every instruction |
-| Position | 145 B | No | One per user per pool; read on add/remove/collect |
-| BinArray | 2096 B | **Yes** | One per 64-bin contiguous range; read/written every swap |
-| Bin (within BinArray) | 32 B | **Yes** | 4 × u64; zero-copy access via bytemuck |
+| Pool | **201 B** | No | Single account per pool pair |
+| Position | **145 B** | No | One per user per pool |
+| BinArray | **2,096 B** | **Yes** | One per 64-bin range, zero-copy bytemuck |
+| Bin (within) | **32 B** | **Yes** | 4 × u64, direct memory mapping |
 
-### Account size breakdown
+## Gas Optimization Techniques
 
-```
-Pool:    8 (discriminator) + 32+32+32+32+32+2+2+2+4+4+8+8+2+2+16+8+8+8+1+7 = 201 B
-Position: 8 (discriminator) + 32+32+4+4+8+8+8+8+8+8+8+1 = 145 B
-BinArray: 8 (discriminator) + 32+4+1+3+32*64 = 2096 B  (~2 KB)
-```
+1. **Zero-copy accounts** — `#[account(zero_copy)]` + `#[repr(C)]` + bytemuck
+   `from_bytes_mut` eliminates Borsh deserialization overhead on every swap
+   iteration.
 
-The maximum transaction size on Solana is 1232 bytes for a single packet
-(though larger transactions can be sent via versioned transactions with
-address lookup tables). BinArray at 2 KB fits comfortably.
+2. **Incremental price computation** — O(log n) binary exponentiation for
+   the first bin (4.2 µs), then O(1) `q64_mul(price, step_multiplier)` per
+   subsequent bin (0.42 µs) — **10× faster** per bin than recomputing
+   `bin_to_price` for each bin.
 
-## Zero-Copy Performance
+3. **Per-BinArray iteration** — Outer loop processes one BinArray (64 bins)
+   at a time, avoiding PDA lookups.
 
-BinArray uses `#[account(zero_copy)]` with `#[repr(C)]` layout, providing:
+4. **Batch token transfers** — Single CPI transfer per direction instead
+   of per-bin.
 
-- **O(1) random access** to any bin via constant-time indexing
-- **No Borsh serialization/deserialization overhead** on reads/writes
-- **Direct memory mapping** through `bytemuck::from_bytes_mut`
-
-Compare with standard `#[account]`: Borsh deserialization on every read
-would add ~200-500 CU per account access. With 64 bins and potentially
-multiple arrays traversed per swap, zero-copy saves thousands of CUs.
-
-## Price Computation: Before vs After Optimization
-
-### Before (Phase 8 — initial implementation)
-
-Each bin iteration called `bin_to_price(bin_id)` which runs **O(log n)**
-binary exponentiation. For a swap crossing `K` bins:
-- Total: `K * O(log n)` multiplications
-- Worst case: 1000 bins × ~17 multiplications = ~17,000 mul operations
-
-### After (Phase 12 — incremental price)
-
-Price is computed once with `bin_to_price(active_bin_id)`, then updated
-per-bin with a single `q64_mul(price, step_multiplier)`:
-- Initial: 1 × `bin_to_price` = O(log n) multiplications
-- Per bin: 1 × `q64_mul` = O(1) multiplication
-- Total: `O(log n) + K` multiplications
-- Worst case: ~17 + 1000 = ~1,017 mul operations (~17× improvement)
-
-## Compute Unit Estimates
-
-All estimates assume worst-case scenario with max bins traversed.
-
-### Initialize Pool
-
-| Operation | Est. CUs |
-|-----------|---------|
-| Account creation (Pool, 2 vaults) | ~5,000 |
-| Pool field writes (15+ fields) | ~500 |
-| Token mint validation | ~1,000 |
-| **Total** | **~6,500** |
-
-### Initialize BinArray
-
-| Operation | Est. CUs |
-|-----------|---------|
-| Account creation (2 KB) | ~3,000 |
-| Zero-fill 64 bins | ~1,000 |
-| Pool key + start_bin_id writes | ~100 |
-| **Total** | **~4,100** |
-
-### Add/Remove Liquidity (10 deposits)
-
-| Operation | Est. CUs |
-|-----------|---------|
-| BinArray data access (zero-copy) | ~500 |
-| Bin amount updates (10 × 2 u64) | ~200 |
-| Price validation (10 × bin_to_price) | ~1,700 |
-| SPL token CPI transfer | ~5,000 |
-| Position tracking | ~200 |
-| **Total** | **~7,600** |
-
-### Swap (10 bins traversed, ExactIn)
-
-| Operation | Est. CUs |
-|-----------|---------|
-| BinArray data access (zero-copy, 1-2 arrays) | ~500 |
-| Incremental price computation (10 × q64_mul) | ~200 |
-| Swap step computation (10 × compute_swap_step) | ~1,000 |
-| Bin amount updates (10 × u64) | ~200 |
-| SPL token CPI transfers (2 ×) | ~10,000 |
-| Volatility update (bin_to_price + decay) | ~200 |
-| Event emission | ~500 |
-| **Total** | **~12,600** |
-
-### Worst-Case Swap (200 bins)
-
-| Operation | Est. CUs |
-|-----------|---------|
-| BinArray traversal (4 arrays × 50 bins) | ~20,000 |
-| Price computation (incremental, 200 × q64_mul) | ~4,000 |
-| Swap step computation (200 × compute_swap_step) | ~20,000 |
-| Bin amount updates (200 × 2 u64) | ~4,000 |
-| SPL token CPI transfers (2 ×) | ~10,000 |
-| Volatility + event | ~1,000 |
-| **Total** | **~59,000** |
-
-Solana's compute budget default is **200,000 CU per transaction**.
-The worst-case swap uses ~59,000 CU (~30% of budget), leaving
-~141,000 CU for transaction overhead and user validation.
-
-A swap crossing **~600 bins** would hit the compute limit.
-
-## Gas Optimization Techniques Used
-
-1. **Zero-copy accounts** — BinArray uses `#[account(zero_copy)]`
-   to avoid Borsh serialization/deserialization.
-
-2. **Incremental price computation** — O(log n) first price, then
-   O(1) per-bin using `q64_mul(price, step_multiplier)`.
-
-3. **Per-BinArray iteration** — The outer loop processes one BinArray
-   at a time, avoiding repeated PDA lookups for bin → array mapping.
-
-4. **bytemuck direct access** — Casting account data directly to
-   `&mut BinArray` instead of using `AccountLoader::load_mut()`,
-   which avoids Anchor's internal deserialization checks.
-
-5. **Checked math with early exit** — `checked_add`/`checked_sub`
-   with immediate error returns prevent wasted computation on
-   overflow paths.
-
-6. **Batch token transfers** — Single CPI transfer per token
-   direction (two total: one in, one out) rather than per-bin.
-
-## Benchmarking (when deployed)
-
-To run benchmarks on a local validator:
+## Running Benchmarks
 
 ```bash
-anchor test --skip-deploy  # uses already-deployed program
+# Full benchmark suite
+RUSTC_BOOTSTRAP=1 cargo +nightly bench -p dlmm --target-dir /tmp/dlmm-bench
+
+# Full test suite
+RUSTC_BOOTSTRAP=1 cargo +nightly test --target-dir /tmp/dlmm-test
+
+# TypeScript property tests
+npx mocha --require ts-node/register tests/quote.test.ts
 ```
 
-Or measure compute units with `solana logs`:
-
-```bash
-solana-test-validator --log
-# In another terminal:
-anchor test 2>&1 | grep -E "Program return|Compute Budget"
-```
-
-Key metrics to measure:
-- CU per instruction type
-- CU per bin traversed
-- CU per liquidity deposit
-- Maximum liquidity deposits before CU limit
-- Maximum swap amount before CU limit

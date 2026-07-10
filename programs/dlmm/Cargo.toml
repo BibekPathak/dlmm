@@ -12,4 +12,8 @@ anchor-lang = "0.31.1"
 anchor-spl = "0.31.1"
 bytemuck = { version = "1.13", features = ["derive"] }
 
+[[bench]]
+name = "math_bench"
+harness = false
+
 
