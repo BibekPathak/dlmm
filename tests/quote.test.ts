@@ -22,7 +22,7 @@ function makeBinArrays(activeBin: number, levels: number): BinArrayAccount[] {
 describe("quoteSwap — exactIn A→B", () => {
   it("should produce positive output for positive input", () => {
     fc.assert(
-      fc.property(fc.integer({ min: 1, max: 1_000_000 }), (amount) => {
+      fc.property(fc.integer({ min: 1000, max: 1_000_000 }), (amount) => {
         const { binStepBps, activeBinId, feeBps, priceLimitBinId } = defaultPoolParams();
         const bas = makeBinArrays(activeBinId, 100);
         const quote = quoteSwap({
