@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::state::bin_array::bin_id_to_array_start;
 use crate::state::bin_array::BINS_PER_ARRAY;
+use crate::math::price_math::BIN_ID_RANGE;
 
 #[account]
 pub struct Pool {
@@ -68,5 +69,27 @@ impl Pool {
 
     pub fn active_bin_array_start(&self) -> i32 {
         bin_id_to_array_start(self.active_bin_id)
+    }
+}
+
+#[cfg(test)]
+impl Pool {
+    pub fn check_invariants(&self) {
+        // P1: active_bin_id in range
+        assert!(self.active_bin_id >= -BIN_ID_RANGE && self.active_bin_id <= BIN_ID_RANGE,
+            "P1: active_bin_id={} out of range", self.active_bin_id);
+        // P2: bin_step_bps valid
+        assert!(self.bin_step_bps > 0 && self.bin_step_bps <= 10000,
+            "P2: bin_step_bps={} invalid", self.bin_step_bps);
+        // P3: base_fee_bps not excessive
+        assert!(self.base_fee_bps <= 10000,
+            "P3: base_fee_bps={} > 10000", self.base_fee_bps);
+        // P4: protocol_fee_bps ≤ base_fee_bps
+        assert!(self.protocol_fee_bps <= self.base_fee_bps,
+            "P4: protocol_fee_bps={} > base_fee_bps={}", self.protocol_fee_bps, self.base_fee_bps);
+        // P5: pending fees non-negative (u64, automatically)
+        // P6: variable_fee_bps bounded
+        assert!(self.variable_fee_bps <= 200,
+            "P6: variable_fee_bps={} > 200", self.variable_fee_bps);
     }
 }

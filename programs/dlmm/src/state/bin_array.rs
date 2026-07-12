@@ -58,6 +58,22 @@ impl BinArray {
 }
 
 #[cfg(test)]
+impl BinArray {
+    pub fn check_invariants(&self) {
+        // B3: aligned start
+        assert!(self.start_bin_id % BINS_PER_ARRAY as i32 == 0,
+            "B3: start_bin_id={} not aligned", self.start_bin_id);
+        // B1: no negative amounts
+        for (i, bin) in self.bins.iter().enumerate() {
+            assert!(bin.amount_x <= u64::MAX, "B1: bin {} amount_x invalid", i);
+            assert!(bin.amount_y <= u64::MAX, "B1: bin {} amount_y invalid", i);
+            assert!(bin.fee_x <= u64::MAX, "B1: bin {} fee_x invalid", i);
+            assert!(bin.fee_y <= u64::MAX, "B1: bin {} fee_y invalid", i);
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -35,3 +35,15 @@ impl Position {
         bin_id >= self.lower_bin_id && bin_id <= self.upper_bin_id
     }
 }
+
+#[cfg(test)]
+impl Position {
+    pub fn check_invariants(&self) {
+        // Q1: valid bin range
+        assert!(self.lower_bin_id <= self.upper_bin_id,
+            "Q1: lower={} > upper={}", self.lower_bin_id, self.upper_bin_id);
+        // Q4: liquidity non-negative (u64, automatic)
+        // Q5: fees owed non-negative (u64, automatic)
+        // Fees checkpoint monotonic — checked at collection time
+    }
+}
